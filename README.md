@@ -34,6 +34,35 @@
 - [安全边界](#安全边界)
 - [License](#license)
 
+## 下载与安装
+
+### 方式一：下载即用包（推荐，内置 Python）
+
+前往 [Releases](https://github.com/BakaZ1DU/Project-MAMAMIYA/releases/latest) 下载：
+
+```text
+wx_ROBOT-v1.0.0-win64.zip
+```
+
+- 约 25MB，内含便携 Python 运行时；
+- 解压后双击 `启动.bat` 即可，不需要另外安装 Python；
+- 第一次使用建议先点“预览填充（不发布）”检查。
+
+> 不要在压缩包里直接运行，先完整解压到一个普通文件夹。
+
+### 方式二：源码运行
+
+需要 Python 3.12 + Pillow：
+
+```bash
+git clone https://github.com/BakaZ1DU/Project-MAMAMIYA.git
+cd Project-MAMAMIYA
+python -m pip install -r requirements.txt
+copy config.example.json config.json
+```
+
+然后双击 `启动.bat`。
+
 ## 它能做什么
 
 - **提前 24 小时准备**：文案、图片先存进本地队列，到点自动发。
@@ -75,48 +104,20 @@
 
 > 微信 3.x 的界面结构不同，不保证可用。
 
-## 快速开始
+## 首次运行
 
-### 1. 获取代码
+- **下载即用包**：解压后已经自带 `config.json`，直接双击 `启动.bat`。
+- **源码运行**：先执行 `copy config.example.json config.json`。
 
-```bash
-git clone https://github.com/BakaZ1DU/Project-MAMAMIYA.git
-cd Project-MAMAMIYA
-```
+可选配置（`config.json`）：
 
-或者直接在 GitHub 页面下载 ZIP 并解压。
-
-### 2. 安装依赖
-
-```bat
-python -m pip install -r requirements.txt
-```
-
-如果你使用本项目附带的便携 Python，可以直接双击 `安装依赖.bat`。
-
-### 3. 创建配置
-
-```bat
-copy config.example.json config.json
-```
-
-然后编辑 `config.json`：
-
-- `account_wxid`：可选，只用于界面提示；不知道就留空；
-- `wechat_exe`：可选，留空会自动在常见路径/注册表里找微信；
-- `privacy`：`public` 或 `private`。
-
-### 4. 启动
-
-双击：
-
-```text
-启动.bat
-```
+- `account_wxid`：只用于界面提示，留空即可；
+- `wechat_exe`：留空会自动在常见路径/注册表里找微信；
+- `privacy`：`public`（公开）或 `private`（仅自己可见）。
 
 `启动.bat` 会按以下顺序找 Python：
 
-1. 程序目录下的 `runtime\pythonw.exe`（便携运行时，如果有）；
+1. 程序目录下的 `runtime\pythonw.exe`（下载即用包自带）；
 2. `%LOCALAPPDATA%\Programs\Python\Python312\pythonw.exe`；
 3. PATH 里的 `pyw -3.12`；
 4. PATH 里的 `pythonw`。
