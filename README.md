@@ -1,4 +1,4 @@
-# wx_ROBOT
+﻿# wx_ROBOT
 
 <div align="center">
 
@@ -41,7 +41,7 @@
 前往 [Releases](https://github.com/BakaZ1DU/Project-MAMAMIYA/releases/latest) 下载：
 
 ```text
-wx_ROBOT-v1.0.0-win64.zip
+wx_ROBOT-v1.0.1-win64.zip
 ```
 
 - 约 25MB，内含便携 Python 运行时；
