@@ -230,44 +230,6 @@ def _process_path(pid: int) -> str:
         kernel32.CloseHandle(h)
 
 
-def detect_wechat_exe(configured: str = "") -> Path | None:
-    """尽量自动找到微信安装位置，适配 Weixin 4.x / WeChat 3.x。"""
-    candidates: list[Path] = []
-    if configured:
-        candidates.append(Path(configured))
-    candidates += [
-        Path(r"D:\Weixin\Weixin.exe"),
-        Path(r"C:\Program Files\Tencent\Weixin\Weixin.exe"),
-        Path(r"C:\Program Files (x86)\Tencent\Weixin\Weixin.exe"),
-        Path(r"C:\Program Files\Tencent\WeChat\WeChat.exe"),
-        Path(r"C:\Program Files (x86)\Tencent\WeChat\WeChat.exe"),
-    ]
-    try:
-        import winreg
-
-        for root, key in (
-            (winreg.HKEY_CURRENT_USER, r"Software\Tencent\Weixin"),
-            (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Tencent\Weixin"),
-            (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Tencent\Weixin"),
-        ):
-            try:
-                with winreg.OpenKey(root, key) as k:
-                    install, _ = winreg.QueryValueEx(k, "InstallPath")
-                    if install:
-                        candidates.insert(0, Path(str(install)) / "Weixin.exe")
-            except OSError:
-                pass
-    except Exception:
-        pass
-    for p in candidates:
-        try:
-            if p.exists() and p.is_file():
-                return p
-        except OSError:
-            continue
-    return None
-
-
 def is_screen_locked() -> bool:
     h = user32.OpenInputDesktop(0, False, DESKTOP_SWITCHDESKTOP)
     if not h:
@@ -510,20 +472,17 @@ class WeChatUI:
         main = self.find_main_window()
         if main is None:
             if self.cfg.get("start_wechat_if_needed", True):
-                exe = detect_wechat_exe(str(self.cfg.get("wechat_exe", "") or ""))
-                if exe is not None:
+                exe = Path(str(self.cfg.get("wechat_exe", r"D:\Weixin\Weixin.exe")))
+                if exe.exists():
                     import subprocess
 
-                    self.log("INFO", f"微信主窗口未找到，尝试启动微信：{exe}")
+                    self.log("INFO", "微信主窗口未找到，尝试启动微信…")
                     try:
                         subprocess.Popen([str(exe)], cwd=str(exe.parent))
                     except Exception as exc:
                         raise WeChatNotReady(f"启动微信失败：{exc}") from exc
                 else:
-                    raise WeChatNotReady(
-                        "找不到微信程序。请在 config.json 里填写 wechat_exe，"
-                        "例如 D:\\Weixin\\Weixin.exe。"
-                    )
+                    raise WeChatNotReady(f"找不到微信程序：{exe}")
             else:
                 raise WeChatNotReady("微信没有运行。")
             try:
@@ -537,34 +496,111 @@ class WeChatUI:
         return main
 
     # ---------- 发布主流程 ----------
-    def _moments_ready(self, r: RECT) -> bool:
-        """通过右上角深色相机栏判断朋友圈页面是否真的加载好。
+    def _header_right(self, r: RECT) -> int:
+        """返回朋友圈深色相机栏的右边界（屏幕坐标）。
 
-        空白加载页是整片白色的；加载好后右上角会出现深色横幅 + 白色相机图标。
+        微信右侧可能打开“笔记/收藏”等白色侧栏，此时相机不在窗口最右边，
+        而是在深色横栏与白色侧栏的交界处。用列亮度找到这个边界。
         """
         try:
             from PIL import ImageGrab
         except Exception:
-            return True
+            return r.right
+        x0 = r.left + int(r.width * 0.38)
         try:
             img = ImageGrab.grab(
-                bbox=(r.right - 210, r.top + 38, r.right - 18, r.top + 82),
+                bbox=(x0, r.top + 32, r.right, r.top + 88),
+                all_screens=True,
+            ).convert("L")
+        except Exception:
+            return r.right
+        w, h = img.size
+        if w < 120:
+            return r.right
+        pix = img.load()
+        means = []
+        for x in range(w):
+            s = 0
+            for y in range(h):
+                s += pix[x, y]
+            means.append(s / h)
+        # 找第一段连续 80 列、平均亮度 > 235 的白色侧栏
+        run = 80
+        for x in range(0, max(1, w - run)):
+            if sum(means[x:x + run]) / run > 235:
+                return x0 + x
+        return r.right
+
+    def _camera_x(self, r: RECT, header_right: int | None = None) -> int | None:
+        """在深色相机栏右端找最右侧的白色图标（相机）的 x 坐标。"""
+        try:
+            from PIL import ImageGrab
+        except Exception:
+            return None
+        hx = header_right if header_right is not None else self._header_right(r)
+        x0 = max(r.left, hx - 160)
+        x1 = max(r.left + 20, hx - 4)
+        if x1 - x0 < 30:
+            return None
+        try:
+            img = ImageGrab.grab(
+                bbox=(x0, r.top + 38, x1, r.top + 78),
+                all_screens=True,
+            ).convert("L")
+        except Exception:
+            return None
+        w, h = img.size
+        pix = img.load()
+        cols = []
+        for x in range(w):
+            cnt = sum(1 for y in range(h) if pix[x, y] > 200)
+            cols.append(cnt)
+        groups: list[tuple[int, int, int]] = []
+        start = None
+        for x, cnt in enumerate(cols + [0]):
+            if cnt >= 2:
+                if start is None:
+                    start = x
+            else:
+                if start is not None:
+                    width = x - start
+                    total = sum(cols[start:x])
+                    if 6 <= width <= 40 and total >= 8:
+                        groups.append((start, x - 1, total))
+                    start = None
+        if not groups:
+            return None
+        g = max(groups, key=lambda t: t[1])
+        return x0 + (g[0] + g[1]) // 2
+
+    def _header_is_dark(self, r: RECT, header_right: int) -> bool:
+        try:
+            from PIL import ImageGrab
+        except Exception:
+            return True
+        x0 = max(r.left, header_right - 230)
+        x1 = max(r.left + 30, header_right - 100)
+        if x1 - x0 < 40:
+            return False
+        try:
+            img = ImageGrab.grab(
+                bbox=(x0, r.top + 36, x1, r.top + 80),
                 all_screens=True,
             ).convert("L")
         except Exception:
             return True
-        w, h = img.size
-        if w < 120 or h < 20:
-            return True
-        bg = img.crop((0, 0, int(w * 0.42), h))
-        icon = img.crop((int(w * 0.62), 0, w, h))
-        bg_px = list(bg.getdata())
-        icon_px = list(icon.getdata())
-        if not bg_px or not icon_px:
-            return True
-        bg_mean = sum(bg_px) / len(bg_px)
-        icon_max = max(icon_px)
-        return bg_mean < 130 and icon_max > 180
+        px = list(img.getdata())
+        return bool(px) and (sum(px) / len(px)) < 230
+
+    def _moments_ready(self, r: RECT) -> bool:
+        """判断朋友圈是否真的加载好：深色相机栏 + 右侧白色相机图标。"""
+        header_right = self._header_right(r)
+        header_left = r.left + int(r.width * 0.20)
+        if header_right - header_left < 180:
+            return False
+        if not self._header_is_dark(r, header_right):
+            return False
+        return self._camera_x(r, header_right) is not None
 
     def _open_moments_page(self, main: WindowInfo, r: RECT) -> None:
         # 朋友圈已经开着就直接用，避免每次点击入口导致重新加载/开新窗口
@@ -635,16 +671,22 @@ class WeChatUI:
         self._open_moments_page(main, r)
         before = self._failed_banner_count(r)
 
-        # 2. 点右上角相机，打开文件选择框（不同窗口尺寸下位置略有差异）
+        # 2. 点右上角相机，打开文件选择框（不同窗口尺寸/侧栏下位置略有差异）
         self.log("INFO", "打开朋友圈相机…")
         dialog = None
-        if r.width > 1200:
-            # 最大化时相机在右上角，约 right-48 / top+70
-            candidates = [(-48, 70), (-48, 66), (-52, 72)]
-        else:
-            candidates = [(-44, 58), (-48, 56), (-40, 64)]
-        for dx, dy in candidates:
-            self._click(r.right + dx, r.top + dy)
+        hx = self._header_right(r)
+        cx = self._camera_x(r, hx)
+        candidates = []
+        if cx:
+            candidates += [(cx, 56), (cx, 62), (cx - 4, 56)]
+        candidates += [
+            (hx - 38, 56),
+            (hx - 45, 56),
+            (r.right - 48, 56),
+            (r.right - 48, 70),
+        ]
+        for x, y in candidates:
+            self._click(x, r.top + y)
             try:
                 dialog = self._wait(lambda: self.find_file_dialog(pid), 5, "图片选择框")
                 break
