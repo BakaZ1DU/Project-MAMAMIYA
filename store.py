@@ -1,4 +1,4 @@
-"""wx_ROBOT 的本地计划队列。
+﻿"""wx_ROBOT 的本地计划队列。
 
 每个朋友圈计划是一个文件夹：
     待发布/
@@ -80,7 +80,7 @@ def load_config() -> dict:
         "publish_wait_seconds": 35,
         "image_settle_seconds": 4,
         "failure_check_seconds": 15,
-        "privacy": "public",
+        "privacy": "keep",
     }
     if CONFIG_PATH.exists():
         try:

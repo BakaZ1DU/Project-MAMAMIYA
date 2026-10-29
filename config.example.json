@@ -1,4 +1,4 @@
-{
+﻿{
   "account_wxid": "",
   "max_schedule_hours": 24,
   "catch_up_minutes": 90,
@@ -17,5 +17,5 @@
   "publish_wait_seconds": 35,
   "image_settle_seconds": 4,
   "failure_check_seconds": 15,
-  "privacy": "public"
+  "privacy": "keep"
 }

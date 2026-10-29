@@ -467,6 +467,31 @@ class WeChatUI:
         except Exception:
             pass
 
+    def _close_obstructions(self, main: WindowInfo) -> None:
+        """关闭/最小化会挡住微信主窗口的“设置/笔记”等附属窗口。
+
+        设置窗口是独立顶层窗口，打开时鼠标点击会落在它上面，
+        导致自动化看似点了相机，实际点到了设置/笔记。
+        """
+        for w in enum_windows():
+            if not user32.IsWindowVisible(w.hwnd):
+                continue
+            if w.hwnd == main.hwnd or w.pid != main.pid:
+                continue
+            if not w.cls.startswith("Qt"):
+                continue
+            if w.rect.width > 900 or w.rect.height > 900:
+                continue
+            title = (w.title or "").strip()
+            if title in ("设置", "Preferences", "Settings"):
+                self.log("INFO", f"关闭挡住的微信设置窗口：{w.hwnd}")
+                user32.PostMessageW(w.hwnd, 0x0010, 0, 0)  # WM_CLOSE
+                self._sleep(0.7)
+            elif title in ("笔记", "Notes"):
+                self.log("INFO", f"最小化独立笔记窗口：{w.hwnd}")
+                user32.ShowWindow(w.hwnd, 6)  # SW_MINIMIZE
+                self._sleep(0.4)
+
     # ---------- 启动 / 就绪 ----------
     def ensure_ready(self) -> WindowInfo:
         main = self.find_main_window()
@@ -531,14 +556,95 @@ class WeChatUI:
                 return x0 + x
         return r.right
 
+    def _find_color_icon(self, r: RECT, name: str, box: tuple[int, int, int, int],
+                         threshold: float = 12.0) -> tuple[int, int] | None:
+        """在小区域里按彩色图标模板找中心点。"""
+        try:
+            from PIL import Image, ImageGrab
+        except Exception:
+            return None
+        tpl_path = Path(__file__).resolve().parent / "assets" / name
+        if not tpl_path.exists():
+            return None
+        try:
+            tpl = Image.open(tpl_path).convert("RGB")
+            reg = ImageGrab.grab(bbox=box, all_screens=True).convert("RGB")
+        except Exception:
+            return None
+        tw, th = tpl.size
+        rw, rh = reg.size
+        if rw < tw or rh < th:
+            return None
+        rp, tp = reg.load(), tpl.load()
+        best = (999.0, None)
+        for y in range(0, rh - th + 1):
+            for x in range(0, rw - tw + 1):
+                s = 0
+                n = 0
+                for ty in range(0, th, 2):
+                    for tx in range(0, tw, 2):
+                        r1, g1, b1 = rp[x + tx, y + ty]
+                        r2, g2, b2 = tp[tx, ty]
+                        s += abs(r1 - r2) + abs(g1 - g2) + abs(b1 - b2)
+                        n += 3
+                score = s / max(1, n)
+                if score < best[0]:
+                    best = (score, (box[0] + x + tw // 2, box[1] + y + th // 2))
+        return best[1] if best[0] <= threshold else None
+
+    def _find_camera_point(self, r: RECT, header_right: int | None = None) -> tuple[int, int] | None:
+        """用相机图标模板找相机中心，避免把铃铛/笔记图标当成相机。"""
+        try:
+            from PIL import Image, ImageGrab
+        except Exception:
+            return None
+        tpl_path = Path(__file__).resolve().parent / "assets" / "camera.png"
+        if not tpl_path.exists():
+            return None
+        hx = header_right if header_right is not None else self._header_right(r)
+        x0 = max(r.left, hx - 170)
+        x1 = max(r.left + 30, hx - 4)
+        y0 = r.top + 30
+        y1 = r.top + 90
+        if x1 - x0 < 40 or y1 - y0 < 40:
+            return None
+        try:
+            tpl = Image.open(tpl_path).convert("L")
+            reg = ImageGrab.grab(bbox=(x0, y0, x1, y1), all_screens=True).convert("L")
+        except Exception:
+            return None
+        tw, th = tpl.size
+        tp = tpl.load()
+        bright = [(x, y) for y in range(th) for x in range(tw) if tp[x, y] > 230]
+        bg = [(x, y) for y in range(th) for x in range(tw) if tp[x, y] <= 230]
+        if not bright or not bg:
+            return None
+        cx = sum(x for x, _ in bright) / len(bright)
+        cy = sum(y for _, y in bright) / len(bright)
+        rw, rh = reg.size
+        if rw < tw or rh < th:
+            return None
+        rp = reg.load()
+        best = (0.0, None)
+        for y in range(0, rh - th + 1):
+            for x in range(0, rw - tw + 1):
+                b = sum(1 for mx, my in bright if rp[x + mx, y + my] > 220) / len(bright)
+                g = sum(1 for mx, my in bg if rp[x + mx, y + my] < 220) / len(bg)
+                score = b * g
+                if score > best[0]:
+                    best = (score, (x0 + x + int(cx), y0 + y + int(cy)))
+        return best[1] if best[0] >= 0.72 else None
+
     def _camera_x(self, r: RECT, header_right: int | None = None) -> int | None:
-        """在深色相机栏右端找最右侧的白色图标（相机）的 x 坐标。"""
+        """找相机图标的 x 坐标；优先模板匹配，失败时回退到白色图标组。"""
         try:
             from PIL import ImageGrab
         except Exception:
             return None
         hx = header_right if header_right is not None else self._header_right(r)
-        x0 = max(r.left, hx - 160)
+        pt = self._find_camera_point(r, hx)
+        if pt:
+            return pt[0]
         x1 = max(r.left + 20, hx - 4)
         if x1 - x0 < 30:
             return None
@@ -600,7 +706,7 @@ class WeChatUI:
             return False
         if not self._header_is_dark(r, header_right):
             return False
-        return self._camera_x(r, header_right) is not None
+        return self._find_camera_point(r, header_right) is not None
 
     def _open_moments_page(self, main: WindowInfo, r: RECT) -> None:
         # 朋友圈已经开着就直接用，避免每次点击入口导致重新加载/开新窗口
@@ -608,13 +714,34 @@ class WeChatUI:
             self.log("INFO", "朋友圈已在当前页。")
             return
 
+        # 1) 如果“发现”面板已经展开，直接用彩色朋友圈图标定位
+        panel_box = (r.left, r.top + 65, r.left + min(360, int(r.width * 0.36)), r.top + 180)
+        pt = self._find_color_icon(r, "moments_icon.png", panel_box, threshold=12)
+        if pt:
+            self.log("INFO", f"点击朋友圈图标：{pt}")
+            self._click(*pt)
+            if self._wait_ready(r, 5):
+                return
+
+        # 2) 面板没展开：先用绿色罗盘图标打开“发现”
+        compass_box = (r.left, r.top + 90, r.left + 70, r.top + 460)
+        cp = self._find_color_icon(r, "discover_green.png", compass_box, threshold=12)
+        if cp:
+            self.log("INFO", f"点击发现图标：{cp}")
+            self._click(*cp)
+            self._sleep(0.8)
+            pt = self._find_color_icon(r, "moments_icon.png", panel_box, threshold=12)
+            if pt:
+                self.log("INFO", f"点击朋友圈图标：{pt}")
+                self._click(*pt)
+                if self._wait_ready(r, 5):
+                    return
+
+        # 3) 模板不可用/缩放异常时的旧坐标回退
         row = (r.left + 150, r.top + 110)
-        # 1) 先试“发现”面板已经展开的情况
         self._click(*row)
         if self._wait_ready(r, 4):
             return
-
-        # 2) 不同窗口大小/布局下，左侧“发现”图标位置会变化，逐个候选尝试
         for cy in (200, 255, 281, 320, 360):
             self._click(r.left + 24, r.top + cy)
             self._sleep(0.5)
@@ -665,6 +792,7 @@ class WeChatUI:
         if not self._force_foreground(main.hwnd):
             self.log("WARNING", "微信窗口未能置于最前，仍尝试继续。")
         self._normalize_window(main)
+        self._close_obstructions(main)
 
         # 1. 打开“朋友圈”页（页面是异步加载的，必须等相机栏出现）
         r = _get_rect(main.hwnd)
@@ -676,6 +804,7 @@ class WeChatUI:
         dialog = None
         hx = self._header_right(r)
         cx = self._camera_x(r, hx)
+        self.log("INFO", f"界面定位：窗口={r.as_tuple()} 深色栏右边界={hx} 相机={cx}")
         candidates = []
         if cx:
             candidates += [(cx, 56), (cx, 62), (cx - 4, 56)]
@@ -708,11 +837,13 @@ class WeChatUI:
         self._fill_text(composer, text)
         self._sleep(0.4)
 
-        privacy = str(self.cfg.get("privacy", "public")).lower()
+        privacy = str(self.cfg.get("privacy", "keep")).lower()
         if privacy in ("public", "private"):
             self.log("INFO", f"设置可见范围：{'私密' if privacy == 'private' else '公开'}…")
             self._set_privacy(composer, private=(privacy == "private"))
             self._sleep(0.5)
+        else:
+            self.log("INFO", "保持微信当前的可见范围设置。")
 
         # 5. 截图存档
         cr = _get_rect(composer.hwnd)

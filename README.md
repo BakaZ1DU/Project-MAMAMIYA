@@ -1,4 +1,4 @@
-﻿# wx_ROBOT
+# wx_ROBOT
 
 <div align="center">
 
@@ -41,7 +41,7 @@
 前往 [Releases](https://github.com/BakaZ1DU/Project-MAMAMIYA/releases/latest) 下载：
 
 ```text
-wx_ROBOT-v1.0.1-win64.zip
+wx_ROBOT-v1.0.2-win64.zip
 ```
 
 - 约 25MB，内含便携 Python 运行时；
@@ -68,7 +68,7 @@ copy config.example.json config.json
 - **提前 24 小时准备**：文案、图片先存进本地队列，到点自动发。
 - **按设定时间发布**：支持未来 24 小时内的任意分钟级时间。
 - **图文朋友圈**：1–9 张 jpg / png / bmp 图片 + 最多 1500 字文案。
-- **可见范围可控**：`public`（公开）或 `private`（仅自己可见）。
+- **可见范围**：默认 `keep`，保持微信当前设置，不自动点“谁可以看”（最稳）；需要时可设 `public` / `private`。
 - **失败可见**：自动识别微信的“照片未发送”提示，失败不会假装成功。
 - **失败归档**：连续失败/不可重试的错误会移到 `失败/`，不会无限重试刷屏。
 - **本地优先**：队列、日志、截图都在本地；不依赖云端服务。
@@ -85,7 +85,7 @@ copy config.example.json config.json
    │
    ▼ 每 3 秒扫描
 到点 → 聚焦微信 → 打开朋友圈 → 相机 → 选择图片
-   → 填入文案 → 设置可见范围 → 点“发表”
+   → 填入文案 → 保持/设置可见范围 → 点“发表”
    → 检查是否出现“照片未发送”
    → 成功：移动到 已发布/
    → 失败：截图 + 记录原因 + 按策略重试/归档
@@ -113,7 +113,7 @@ copy config.example.json config.json
 
 - `account_wxid`：只用于界面提示，留空即可；
 - `wechat_exe`：留空会自动在常见路径/注册表里找微信；
-- `privacy`：`public`（公开）或 `private`（仅自己可见）。
+- `privacy`：默认 `keep`（保持微信当前设置）；可选 `public` / `private`，但自动点选有误触风险，建议保持 `keep`。
 
 `启动.bat` 会按以下顺序找 Python：
 
@@ -198,7 +198,7 @@ copy config.example.json config.json
 | `image_settle_seconds` | `4` | 选图后等待图片处理的时间 |
 | `publish_wait_seconds` | `35` | 点发表后等待编辑框关闭的上限 |
 | `failure_check_seconds` | `15` | 发表后观察“照片未发送”的时长 |
-| `privacy` | `public` | `public` 公开 / `private` 仅自己可见 |
+| `privacy` | `keep` | `keep` 保持微信当前设置；`public` / `private` 自动点选（有误触风险） |
 
 ## 项目结构
 
@@ -213,6 +213,10 @@ Project-MAMAMIYA/
 ├─ 诊断启动.bat
 ├─ 安装依赖.bat
 ├─ wx_robot.ico
+├─ assets/                # 相机/朋友圈/发现图标模板
+│  ├─ camera.png
+│  ├─ moments_icon.png
+│  └─ discover_green.png
 ├─ docs/
 │  ├─ banner.png
 │  ├─ 使用说明.md
