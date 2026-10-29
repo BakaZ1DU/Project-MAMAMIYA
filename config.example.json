@@ -1,0 +1,21 @@
+{
+  "account_wxid": "",
+  "max_schedule_hours": 24,
+  "catch_up_minutes": 90,
+  "check_interval_seconds": 3,
+  "max_retries": 2,
+  "retry_delay_minutes": 8,
+  "max_images": 9,
+  "max_text_chars": 1500,
+  "dry_run": false,
+  "keep_awake": true,
+  "wechat_exe": "",
+  "start_wechat_if_needed": true,
+  "verify_text": true,
+  "debug_screenshots": true,
+  "window_wait_seconds": 8,
+  "publish_wait_seconds": 35,
+  "image_settle_seconds": 4,
+  "failure_check_seconds": 15,
+  "privacy": "public"
+}
